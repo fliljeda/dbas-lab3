@@ -1,0 +1,112 @@
+1.
+
+for $x in doc('Desktop/mondial.xml')/mondial/country
+for $y in doc('Desktop/mondial.xml')/mondial/sea
+where $y/name = "Baltic Sea" and $x/@car_code = tokenize($y/@country, " ")
+return tokenize($x/@capital, '-')[3] (: Vilnius is named "l" in xml doc :)
+
+2.
+
+let $list := 
+  for $x in doc('Desktop/mondial.xml')/mondial/desert
+  order by $x/latitude descending
+  return $x/name
+return $list[1]
+
+3.
+
+let $validranges := for $x in doc('mondial.xml')/mondial/mountain
+  where exists($x/mountains)
+  let $y := $x/mountains
+  group by $y
+  where count($x) > 2
+  return $y
+ 
+for $x in doc("mondial.xml")/mondial/mountain
+where exists($x/mountains)
+let $range := $x/mountains
+let $countries := tokenize($x/@country, " ")
+for $country in $countries
+group by $range
+where data($range) = $validranges
+return <ans><mountrange>{$range}</mountrange><country>{count(distinct-values($country))}</country></ans>
+
+
+5.
+
+let $continents :=
+  for $x in doc('mondial.xml')/mondial/continent
+  where $x/area > 9000000
+  return lower-case($x/name)
+
+(: Cities can be both directly under country or under province. Need to be done in this way to get the correct continent:)
+
+let $cities1 :=
+  for $x in doc('mondial.xml')/mondial/country/province/city
+  where $x/latitude >= -35 and $x/latitude <= 35 
+  and $x/../../encompassed[1]/@continent = $continents
+  return <cont cont = "{data($x/../../encompassed[1]/@continent)}"/>
+  
+let $cities2 :=
+  for $x in doc('mondial.xml')/mondial/country/city
+  where $x/latitude >= -35 and $x/latitude <= 35
+  and $x/../encompassed[1]/@continent = $continents
+  return <cont cont = "{data($x/../encompassed[1]/@continent)}"/>
+
+return
+  for $values in $continents
+  let $count1 := count($cities1[@cont = $values])
+  let $count2 := count($cities2[@cont = $values])
+  return concat($values," ",$count1 + $count2) 
+
+
+7.
+
+for $x in doc('Desktop/mondial.xml')/mondial/organization
+for $y in doc('Desktop/mondial.xml')/mondial/country
+where contains($x/name, 'Nuclear') and not(exists($x/established)) and $y/name = tokenize($x/@headq, '-')[2] and $y/encompassed/@continent = 'europe' return $x/name
+
+8.
+
+declare function local:popIn($years as xs:integer, $country as xs:string)
+{
+for $x in doc("database/mondial.xml")/mondial/country
+where exists($x/population_growth) and $country = data($x/name)
+let $pop := data($x/population[last()])
+let $growth := (<int>{$x/population_growth}</int> + 100) div 100
+let $estpop := xs:long($pop*(math:pow($growth,$years)))
+return $estpop
+};
+ 
+for $x in doc("Database/mondial.xml")/mondial/country
+order by $x/name
+return
+<country>
+  <name>{$x/name} </name>
+  <PopIn10>{local:popIn(10, $x/name)}</PopIn10>
+  <PopIn25>{local:popIn(25, $x/name)}</PopIn25>
+  <PopIn50>{local:popIn(50, $x/name)}</PopIn50>
+  <PopIn100>{local:popIn(100, $x/name)}</PopIn100>
+</country>
+
+10.
+
+(: Give names of all the countries (recursively) reachable from Sweden via borders :)
+declare function local:reachableFrom($countries as element(country)*, $oldreachable as element(country)*){
+    let $newreachable :=
+        for $allCountries in $countries
+        for $countryReach in $oldreachable
+        where $countryReach/border/@country = $allCountries/@car_code
+        return $allCountries
+ 
+    let $new := $newreachable union $oldreachable
+    return if (count($oldreachable) = count($new)) then $new
+    else local:reachableFrom($countries, $new)
+};
+ 
+let $countryData :=
+  let $countries := /mondial/country
+  let $country := $countries[name='Sweden']
+  return local:reachableFrom($countries, $country)
+ 
+return $countryData/name
